@@ -1,13 +1,6 @@
 from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
-from astrapy.db import AstraDB
-from datasets import load_dataset
 from dotenv import dotenv_values
 from exa_py import Exa
-from langchain_community.document_loaders import AstraDBLoader
-from langchain.schema import Document
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import AstraDB as astra
-from langchain_openai import ChatOpenAI
 import os
 from PIL import Image
 import re
@@ -32,20 +25,11 @@ anthropic = Anthropic(
 )
 os.environ["REPLICATE_API_TOKEN"] = config.get("REPLICATE_API_TOKEN") # Replicate
 
-ASTRA_DB_APPLICATION_TOKEN = config.get("ASTRA_DB_APPLICATION_TOKEN")
-ASTRA_DB_API_ENDPOINT = config.get("ASTRA_DB_API_ENDPOINT")
-ASTRA_COLLECTION_NAME = "quotes"
 
-# Initialization
-db = AstraDB(
-  token=ASTRA_DB_APPLICATION_TOKEN,
-  api_endpoint=ASTRA_DB_API_ENDPOINT)
-
-print(f"Connected to Astra DB: {db.get_collections()}")
 
 def main():
-    st.title("Love Poem x Gift Idea Generator w/ Astrology❤️ 💌") 
-    st.write("Built w/ Anthropic, SendGrid, Streamlit, Exa, Astra, and Replicate") 
+    st.title("Love Poem Generator w/ Astrology❤️ 💌") 
+    st.write("Built w/ Anthropic, SendGrid, Streamlit, and Replicate") 
     image = Image.open('pikalove.png')
     st.image(image)
     
@@ -72,11 +56,9 @@ def main():
     )
     st.write('You selected:', astrology_sign)
 
-
-    user_email = st.text_input("Email to send love poem and Valentine's Day gift idea to📧", "lol@gmail.com")
+    user_email = st.text_input("Email to send love poem to📧", "lol@gmail.com")
     poem = ''
-    gen_gifts = ''
-    if st.button('Generate a poem && gift ideas w/ AI 🧠🤖') and astrology_sign and addons and model_toggle and receiver_name and receiver_description and user_email:
+    if st.button('Generate a poem w/ AI 🧠🤖') and astrology_sign and addons and model_toggle and receiver_name and receiver_description and user_email:
         with st.spinner('Processing📈...'):
             exa = Exa(EXA_API_KEY)
             exa_resp = exa.search(
@@ -99,43 +81,10 @@ def main():
                 title, url, score = match
                 gifts.append(f'{title.strip()}: {url.strip()}')
 
-            gifts = """1. Revenge of the Sith Anakin and Obi-wan Quotes Tote Bag - Etsy: <https://www.etsy.com/listing/1607548352/revenge-of-the-sith-anakin-and-obi-wan>
-            2. May the Force Be With You Bookmark - Etsy: <https://www.etsy.com/listing/1665476653/may-the-force-be-with-you-bookmark>"""
-
-            # print(f'gifts {gifts}')
-            # Star Wars
-            starwars_quotes_huggingface_dataset = load_dataset("lizziepika/starwarsquotes")["train"]
-            print(f"An example entry from Hugging Face dataset: {starwars_quotes_huggingface_dataset[0]}")
-
-            docs = []
-            for entry in starwars_quotes_huggingface_dataset:
-                metadata = {"movie": entry["movie"], "year": entry["year"]}
-            
-                # Add a LangChain document with the name and metadata tags
-                doc = Document(page_content=entry["quote"], metadata=metadata)
-                docs.append(doc)
-            print(f'docs {docs}') 
-            
-            embedding_function = OpenAIEmbeddings(openai_api_key = OPENAI_API_KEY)
-            vstore = astra(
-                embedding=embedding_function,
-                collection_name="test",
-                api_endpoint=ASTRA_DB_API_ENDPOINT,
-                token=ASTRA_DB_APPLICATION_TOKEN,
-            )
-            inserted_ids = vstore.add_documents(docs) # add Strava data to vector store
-            print(f"\nInserted {len(inserted_ids)} documents.")
-
-            # result = vstore.similarity_search(ret_workouts_specific_input, k = 3) # "return workouts with moving_time over 4000 and total_elevation_gain over 150"
-            # print(f'result {result}')
-
             COPY_PROMPT = f"""
                 You are a copy editor. Edit the following blurb and return only that edited blurb, ensuring the only pronouns used are "I": {receiver_description}. 
                 There should be no preamble.
             """
-            GIFT_PROMPT= f"Without preamble, return the gift names and their corresponding URLs contained in the following array: {gifts}."
-            print(f'GIFT_PROMPT {GIFT_PROMPT}')
-
 
             if model_toggle == "***Claude***":
                 completion1 = anthropic.completions.create(
@@ -163,14 +112,6 @@ def main():
                 print(newpoem)
                 st.markdown(f'Generated poem:  {newpoem}')
     
-                gift_completion = anthropic.completions.create(
-                    model="claude-2.1",
-                    max_tokens_to_sample=1000,
-                    prompt=f"{HUMAN_PROMPT}: {GIFT_PROMPT}. {AI_PROMPT}",
-                )
-                gen_gifts = gift_completion.completion
-                print(gen_gifts)
-                st.markdown(f'Recommended gifts: {gen_gifts}')
 
             elif model_toggle == ":rainbow[llama-2-70b-chat]":
                 editpronouns = replicate.run(
@@ -186,13 +127,6 @@ def main():
                     print(item, end="")
                 print("newpronounsblurb ", newpronounsblurb)
 
-                rep_gen_gifts = replicate.run(
-                    "meta/llama-2-70b-chat:02e509c789964a7ea8736978a43525956ef40397be9033abf9fd2badfe68c9e3",
-                    input={
-                        "prompt": GIFT_PROMPT,
-                        "max_new_tokens": 407000
-                    }
-                )
                 MAIN_PROMPT= f"""
                 With no preamble, please make me laugh by writing a short, silly, lighthearted, complimentary, lovey-dovey poem that rhymes about the following person named {receiver_name}. 
                 <receiver_description>{newpronounsblurb}</receiver_description>. 
@@ -214,13 +148,8 @@ def main():
                     print(item, end="")
                 print("newpoem ", newpoem)
                 
-                for item in rep_gen_gifts:
-                    gen_gifts += item
-                    print(item, end="")
                 
-
                 st.markdown(f'The generated poem: {newpoem}')
-                st.markdown(f'Recommended gifts: {gen_gifts}')
             
             output_pic = replicate.run(
                 "stability-ai/stable-diffusion:ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4",
@@ -235,11 +164,10 @@ def main():
             message = Mail(
                 from_email='love@poem.com',
                 to_emails=user_email,
-                subject='Personal poem x gift ideas for you!❤️',
+                subject='Personal poem for you!❤️',
                 html_content=f'''
                 <img src="{output_pic[0]}"</img>
                 <p>{newpoem}</p>
-                <p>{gen_gifts}</p>
                 <p> ❤️😘🥰</p>
                 '''
             )
