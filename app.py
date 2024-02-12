@@ -1,15 +1,21 @@
 from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
+from astrapy.db import AstraDB
+from datasets import load_dataset
 from dotenv import dotenv_values
 from exa_py import Exa
+from langchain_community.document_loaders import AstraDBLoader
+from langchain.schema import Document
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import AstraDB as astra
+from langchain_openai import ChatOpenAI
 import os
 from PIL import Image
 import re
 import replicate
-import requests
 import sendgrid
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import (
-     Mail, Attachment, FileContent, FileName, FileType, Disposition)
+     Mail)
 import streamlit as st
 
 with open('./style/style.css') as f:
@@ -20,14 +26,26 @@ config = dotenv_values(".env")
 EXA_API_KEY = config.get('EXA_API_KEY')
 SENDGRID_API_KEY = config.get('SENDGRID_API_KEY')
 ANTHROPIC_API_KEY = config.get('ANTHROPIC_API_KEY')
+OPENAI_API_KEY = config.get("OPENAI_API_KEY")
 anthropic = Anthropic(
     api_key=ANTHROPIC_API_KEY
 )
-os.environ["REPLICATE_API_TOKEN"] = config.get("REPLICATE_API_TOKEN")
+os.environ["REPLICATE_API_TOKEN"] = config.get("REPLICATE_API_TOKEN") # Replicate
+
+ASTRA_DB_APPLICATION_TOKEN = config.get("ASTRA_DB_APPLICATION_TOKEN")
+ASTRA_DB_API_ENDPOINT = config.get("ASTRA_DB_API_ENDPOINT")
+ASTRA_COLLECTION_NAME = "quotes"
+
+# Initialization
+db = AstraDB(
+  token=ASTRA_DB_APPLICATION_TOKEN,
+  api_endpoint=ASTRA_DB_API_ENDPOINT)
+
+print(f"Connected to Astra DB: {db.get_collections()}")
 
 def main():
-    st.title("Love Poem x Gift Idea Generator❤️ 💌") 
-    st.write("Built w/ Anthropic, SendGrid, Streamlit, Exa, Replicate, and Replit") 
+    st.title("Love Poem x Gift Idea Generator w/ Astrology❤️ 💌") 
+    st.write("Built w/ Anthropic, SendGrid, Streamlit, Exa, Astra, and Replicate") 
     image = Image.open('pikalove.png')
     st.image(image)
     
@@ -45,6 +63,7 @@ def main():
         ['humor', 'Star Wars quotes', 'Shrek reference', 'Taylor Swift lyrics', 'Klay Thompson quote'],
         ['Star Wars quotes', 'Shrek reference']
     )
+
     st.write('You selected:', addons)
 
     astrology_sign = st.selectbox(
@@ -61,7 +80,7 @@ def main():
         with st.spinner('Processing📈...'):
             exa = Exa(EXA_API_KEY)
             exa_resp = exa.search(
-                f"valentine's day gift for someone who's a {astrology_sign} and is described as {receiver_description}",
+                f"thoughtful, fun gift for someone who's a {astrology_sign} and is described as {receiver_description}",
                 num_results=3,
                 start_crawl_date="2024-01-01",
                 end_crawl_date="2024-02-14",
@@ -80,12 +99,43 @@ def main():
                 title, url, score = match
                 gifts.append(f'{title.strip()}: {url.strip()}')
 
-            print(f'gifts {gifts}')
+            gifts = """1. Revenge of the Sith Anakin and Obi-wan Quotes Tote Bag - Etsy: <https://www.etsy.com/listing/1607548352/revenge-of-the-sith-anakin-and-obi-wan>
+            2. May the Force Be With You Bookmark - Etsy: <https://www.etsy.com/listing/1665476653/may-the-force-be-with-you-bookmark>"""
+
+            # print(f'gifts {gifts}')
+            # Star Wars
+            starwars_quotes_huggingface_dataset = load_dataset("lizziepika/starwarsquotes")["train"]
+            print(f"An example entry from Hugging Face dataset: {starwars_quotes_huggingface_dataset[0]}")
+
+            docs = []
+            for entry in starwars_quotes_huggingface_dataset:
+                metadata = {"movie": entry["movie"], "year": entry["year"]}
+            
+                # Add a LangChain document with the name and metadata tags
+                doc = Document(page_content=entry["quote"], metadata=metadata)
+                docs.append(doc)
+            print(f'docs {docs}') 
+            
+            embedding_function = OpenAIEmbeddings(openai_api_key = OPENAI_API_KEY)
+            vstore = astra(
+                embedding=embedding_function,
+                collection_name="test",
+                api_endpoint=ASTRA_DB_API_ENDPOINT,
+                token=ASTRA_DB_APPLICATION_TOKEN,
+            )
+            inserted_ids = vstore.add_documents(docs) # add Strava data to vector store
+            print(f"\nInserted {len(inserted_ids)} documents.")
+
+            # result = vstore.similarity_search(ret_workouts_specific_input, k = 3) # "return workouts with moving_time over 4000 and total_elevation_gain over 150"
+            # print(f'result {result}')
 
             COPY_PROMPT = f"""
                 You are a copy editor. Edit the following blurb and return only that edited blurb, ensuring the only pronouns used are "I": {receiver_description}. 
                 There should be no preamble.
             """
+            GIFT_PROMPT= f"Without preamble, return the gift names and their corresponding URLs contained in the following array: {gifts}."
+            print(f'GIFT_PROMPT {GIFT_PROMPT}')
+
 
             if model_toggle == "***Claude***":
                 completion1 = anthropic.completions.create(
@@ -112,8 +162,7 @@ def main():
                 newpoem = completion.completion
                 print(newpoem)
                 st.markdown(f'Generated poem:  {newpoem}')
-                GIFT_PROMPT= "Return only a one sentence summary of the following gift ideas: {gifts} and no preamble."
-
+    
                 gift_completion = anthropic.completions.create(
                     model="claude-2.1",
                     max_tokens_to_sample=1000,
@@ -136,21 +185,21 @@ def main():
                     newpronounsblurb+=item 
                     print(item, end="")
                 print("newpronounsblurb ", newpronounsblurb)
-                MAIN_PROMPT= f"""
-                    Please make me laugh by writing a short, silly, lighthearted, complimentary, lovey-dovey poem that rhymes about the following person named {receiver_name}. 
-                    <receiver_description>{newpronounsblurb}</receiver_description>. 
-                    I would enjoy it if the poem also jokingly included the common characteristics of a person that has the astrological sign of {astrology_sign}
-                    and something about {addons}. 
-                    Return only the poem where each new line ends with a new line character. 
-                """
 
                 rep_gen_gifts = replicate.run(
                     "meta/llama-2-70b-chat:02e509c789964a7ea8736978a43525956ef40397be9033abf9fd2badfe68c9e3",
                     input={
-                        "prompt": "Return only a one sentence summary of the following gift ideas: {gifts} and no preamble.",
-                        "max_new_tokens": 400
+                        "prompt": GIFT_PROMPT,
+                        "max_new_tokens": 407000
                     }
                 )
+                MAIN_PROMPT= f"""
+                With no preamble, please make me laugh by writing a short, silly, lighthearted, complimentary, lovey-dovey poem that rhymes about the following person named {receiver_name}. 
+                <receiver_description>{newpronounsblurb}</receiver_description>. 
+                I would enjoy it if the poem also jokingly included the common characteristics of a person that has the astrological sign of {astrology_sign}
+                and something about {addons}. 
+                Return only the poem. 
+                """
 
                 poem = replicate.run(
                     "meta/llama-2-70b-chat:02e509c789964a7ea8736978a43525956ef40397be9033abf9fd2badfe68c9e3",
@@ -168,6 +217,7 @@ def main():
                 for item in rep_gen_gifts:
                     gen_gifts += item
                     print(item, end="")
+                
 
                 st.markdown(f'The generated poem: {newpoem}')
                 st.markdown(f'Recommended gifts: {gen_gifts}')
@@ -175,9 +225,10 @@ def main():
             output_pic = replicate.run(
                 "stability-ai/stable-diffusion:ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4",
                 input={
-                    "prompt": f"A safe-for-work, funny image to appeal to someone endearingly described as {receiver_description}",
+                    "prompt": f"Please generate a G-rated cute image of a {astrology_sign} including hearts that I can show my manager",
                     "width": 448,
-                    "height": 448
+                    "height": 448,
+                    "negative_prompt": "nsfw",
                 }
             )
             print(output_pic[0])
