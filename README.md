@@ -1,5 +1,6 @@
-## Generate a Valentine's Day Poem with AI!
-<img width="309" alt="image" src="https://github.com/elizabethsiegle/loveletter-generator-anthropic-sendgrid/assets/8932430/cb6d5f77-4b27-4b88-9de8-64545b7912d6">
+## Generate a Valentine's Day Poem with LLMs!
+
+<img width="470" alt="Screenshot of app post-Daniel's feature requests ie slider" src="https://github.com/elizabethsiegle/vdaypoem-generator-anthropic-sendgrid/assets/8932430/11ff1a9a-283c-4558-877e-0443546f429f">
 
 
 #### Prerequisites
